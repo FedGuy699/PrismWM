@@ -14,6 +14,8 @@
 #include <sstream>
 #include <map>
 #include <vector>
+#include <X11/Xatom.h>
+#include <algorithm>
 
 Display* display = nullptr;
 Window root;
@@ -27,13 +29,65 @@ std::map<std::pair<int, unsigned int>, std::string> keybindings;
 
 bool resize_mode = false;
 
-
+bool tiling_enabled = false;
+std::vector<Window> managed_windows;
 
 std::string get_config_path() {
     const char* home = getenv("HOME");
     if (!home) home = getpwuid(getuid())->pw_dir;
     return std::string(home) + "/.config/brooklynn/config";
 }
+
+void show_config_created_bar(const std::string& message) {
+    int screen = DefaultScreen(display);
+    Window bar = XCreateSimpleWindow(display, RootWindow(display, screen),
+                                     0, 0, DisplayWidth(display, screen), 30, 0,
+                                     BlackPixel(display, screen), WhitePixel(display, screen));
+
+    XSetWindowAttributes attrs;
+    attrs.override_redirect = True;
+    XChangeWindowAttributes(display, bar, CWOverrideRedirect, &attrs);
+
+    XSelectInput(display, bar, ExposureMask | ButtonPressMask);
+    XMapWindow(display, bar);
+
+    Cursor cursor = XCreateFontCursor(display, XC_left_ptr);
+    XDefineCursor(display, bar, cursor);
+
+    GC gc = XCreateGC(display, bar, 0, nullptr);
+    XSetForeground(display, gc, BlackPixel(display, screen));
+
+    Atom wm_delete = XInternAtom(display, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(display, bar, &wm_delete, 1);
+
+    XEvent ev;
+    bool showing = true;
+
+    while (showing) {
+        XNextEvent(display, &ev);
+        if (ev.type == Expose) {
+            XDrawString(display, bar, gc, 10, 20, message.c_str(), message.size());
+            XDrawString(display, bar, gc, DisplayWidth(display, screen) - 30, 20, "[X]", 3);
+        } else if (ev.type == ButtonPress) {
+            int mx = ev.xbutton.x;
+            int w = DisplayWidth(display, screen);
+            if (mx >= w - 40) {
+                showing = false;
+            }
+        } else if (ev.type == ClientMessage) {
+            if ((Atom)ev.xclient.data.l[0] == wm_delete) {
+                showing = false;
+            }
+        }
+    }
+
+    XDestroyWindow(display, bar);
+    XFreeCursor(display, cursor);
+    XFreeGC(display, gc);
+    XFlush(display);
+}
+
+
 
 void ensure_config_exists(const std::string& path) {
     size_t last_slash = path.rfind('/');
@@ -52,22 +106,30 @@ void ensure_config_exists(const std::string& path) {
     out << "\n# Startup apps here\n";
     out << "\n# feh --bg-scale Pictures/background.png\n";
 
-    out << "# Example keybindings\n";
+    out << "\n# Example keybindings\n";
     out << "Mod4+B=firefox\n";
-    out << "Mod4+T=ghostty\n";
+    out << "Mod4+T=alacritty\n";
+    out << "# Uncomment for rofi\n";
+    out << "# Mod4+R=rofi -show drun\n";
 
     out << "Mod4+Shift+Up=move_up\n";
     out << "Mod4+Shift+Down=move_down\n";
     out << "Mod4+Shift+Left=move_left\n";
     out << "Mod4+Shift+Right=move_right\n";
     out << "Mod4+Shift+F=fullscreen\n";
+    out << "Mod4+Shift+Q=kill_focused\n";
     out << "\n# When holding this key resize mode is on when in resize mode you can use arrow keys to size the window\n";
     out << "Mod4+Shift+R=resize_mode\n";
 
+    out << "\n# This can be a bit buggy"
+    out << "tiling=false\n"
+
     out << "\n# xrandr example command to run at startup\n";
     out << "# xrandr=--output HDMI-1 --mode 1920x1080 --rate 60\n";
-
     out.close();
+
+    std::string msg = "Brooklynn config created at " + path;
+    show_config_created_bar(msg);
 }
 
 
@@ -88,6 +150,14 @@ void load_config(Display* dpy, Window root) {
 
         if (line.rfind("xrandr=", 0) == 0) {
             xrandr_command = line.substr(7);
+            continue;
+        }
+
+        if (line == "tiling=true") {
+            tiling_enabled = true;
+            continue;
+        } else if (line == "tiling=false") {
+            tiling_enabled = false;
             continue;
         }
 
@@ -117,7 +187,6 @@ void load_config(Display* dpy, Window root) {
         startup_commands.push_back(line);
     }
 }
-
 
 bool get_monitor_geometry(Display* dpy, Window win, int* x, int* y, int* w, int* h) {
     Window root = DefaultRootWindow(dpy);
@@ -208,7 +277,6 @@ bool get_primary_monitor_geometry(Display* dpy, int* x, int* y, int* w, int* h) 
     return true;
 }
 
-
 void launch(const char* cmd, int px, int py) {
     pid_t pid = fork();
     if (pid == 0) {
@@ -241,6 +309,97 @@ void signal_handler(int) {
     running = false;
 }
 
+bool check_app_position_request(Display* dpy, Window w) {
+    XSizeHints hints;
+    long supplied_return;
+    if (XGetWMNormalHints(dpy, w, &hints, &supplied_return)) {
+        if (hints.flags & PPosition) {
+            return true;
+        }
+    }
+    return false;
+}
+
+Window get_toplevel_window(Display* dpy, Window w) {
+    Window root_return, parent_return;
+    Window *children_return;
+    unsigned int nchildren;
+
+    Window current = w;
+    while (true) {
+        if (!XQueryTree(dpy, current, &root_return, &parent_return, &children_return, &nchildren)) {
+            break;
+        }
+        if (children_return) XFree(children_return);
+        if (parent_return == root_return || parent_return == None) {
+            break; 
+        }
+        current = parent_return;
+    }
+    return current;
+}
+
+void apply_tiling_layout() {
+    if (!tiling_enabled || managed_windows.empty()) return;
+
+    int mx = 0, my = 0, mw = 0, mh = 0;
+    if (!get_primary_monitor_geometry(display, &mx, &my, &mw, &mh)) return;
+
+    managed_windows.erase(std::remove_if(managed_windows.begin(), managed_windows.end(),
+        [](Window w) {
+            Window root_return;
+            int x, y;
+            unsigned int width, height, border_width, depth;
+            return !XGetGeometry(display, w, &root_return, &x, &y, &width, &height, &border_width, &depth);
+        }),
+        managed_windows.end());
+
+    size_t count = managed_windows.size();
+    if (count == 0) return;
+
+    if (count == 1) {
+        XMoveResizeWindow(display, managed_windows[0], mx, my, mw, mh);
+        return;
+    }
+
+    size_t index = 0;
+    int y_offset = 0;
+
+    while (index < count) {
+        int row_type = (index / 3) % 3;
+
+        int row_height;
+        if (row_type == 2 || count - index == 1) {
+            row_height = mh / ((count + 1) / 2);
+            XMoveResizeWindow(display, managed_windows[index], mx, my + y_offset, mw, row_height);
+            index += 1;
+        } else {
+            row_height = mh / ((count + 1) / 2);
+            int w_count = std::min(2UL, count - index);
+            int col_width = mw / w_count;
+            for (int i = 0; i < w_count; ++i) {
+                XMoveResizeWindow(display, managed_windows[index + i],
+                                  mx + i * col_width, my + y_offset, col_width, row_height);
+            }
+            index += w_count;
+        }
+
+        y_offset += row_height;
+    }
+}
+
+
+
+void handle_destroy_notify(XDestroyWindowEvent* ev) {
+    if (!tiling_enabled) return;
+    
+    auto it = std::find(managed_windows.begin(), managed_windows.end(), ev->window);
+    if (it != managed_windows.end()) {
+        managed_windows.erase(it);
+        apply_tiling_layout();
+    }
+}
+
 int main() {
     display_name = getenv("DISPLAY");
     signal(SIGINT, signal_handler);
@@ -263,7 +422,10 @@ int main() {
         return 0;
     });
 
-    XSelectInput(display, root, SubstructureRedirectMask | SubstructureNotifyMask | KeyPressMask | PointerMotionMask);
+    XSelectInput(display, root, 
+        SubstructureRedirectMask | SubstructureNotifyMask | 
+        KeyPressMask | PointerMotionMask | StructureNotifyMask);
+
     load_config(display, root);
     if (!xrandr_command.empty()) {
         std::string full_cmd = "xrandr " + xrandr_command;
@@ -271,10 +433,8 @@ int main() {
     }
 
     for (const std::string& cmd : startup_commands) {
-        launch(cmd.c_str(), 0, 0); 
+        launch(cmd.c_str(), 0, 0);
     }
-
-
 
     int key_left = XKeysymToKeycode(display, XK_Left);
     int key_right = XKeysymToKeycode(display, XK_Right);
@@ -294,8 +454,45 @@ int main() {
         XEvent ev;
         XNextEvent(display, &ev);
         switch (ev.type) {
+            case DestroyNotify:
+                handle_destroy_notify(&ev.xdestroywindow);
+                break;
+
             case MapRequest: {
                 Window w = ev.xmaprequest.window;
+
+                XWindowAttributes attr;
+                XGetWindowAttributes(display, w, &attr);
+
+                if (attr.override_redirect) {
+                    bool should_manage = false;
+
+                    Atom actual_type;
+                    int actual_format;
+                    unsigned long nitems, bytes_after;
+                    unsigned char* prop = nullptr;
+
+                    Atom net_wm_type = XInternAtom(display, "_NET_WM_WINDOW_TYPE", True);
+                    Atom type_normal = XInternAtom(display, "_NET_WM_WINDOW_TYPE_NORMAL", True);
+
+                    if (XGetWindowProperty(display, w, net_wm_type, 0, 1024, False, XA_ATOM,
+                                           &actual_type, &actual_format, &nitems,
+                                           &bytes_after, &prop) == Success && prop) {
+                        Atom* types = (Atom*)prop;
+                        for (unsigned long i = 0; i < nitems; ++i) {
+                            if (types[i] == type_normal) {
+                                should_manage = true;
+                                break;
+                            }
+                        }
+                        XFree(prop);
+                    }
+
+                    if (!should_manage) {
+                        XMapWindow(display, w);
+                        break;
+                    }
+                }
 
                 int mx = 0, my = 0, mw = 0, mh = 0;
                 if (!get_primary_monitor_geometry(display, &mx, &my, &mw, &mh)) {
@@ -303,15 +500,33 @@ int main() {
                     my = 100;
                 }
 
+                int x, y;
+                if (check_app_position_request(display, w)) {
+                    x = attr.x;
+                    y = attr.y;
+                } else {
+                    unsigned int ww = attr.width;
+                    unsigned int wh = attr.height;
+                    x = mx + (mw - ww) / 2;
+                    y = my + (mh - wh) / 2;
+                }
+
                 XReparentWindow(display, w, root, 0, 0);
-                XWindowChanges ch{.x = mx, .y = my, .width = 800, .height = 600};
-                XConfigureWindow(display, w, CWX | CWY | CWWidth | CWHeight, &ch);
+                XWindowChanges ch{.x = x, .y = y};
+                XConfigureWindow(display, w, CWX | CWY, &ch);
                 XMapWindow(display, w);
-                XSelectInput(display, w, EnterWindowMask);
+                XSelectInput(display, w, EnterWindowMask | StructureNotifyMask);
                 XSetInputFocus(display, w, RevertToPointerRoot, CurrentTime);
                 XRaiseWindow(display, w);
+
+                if (tiling_enabled) {
+                    managed_windows.push_back(w);
+                    apply_tiling_layout();
+                }
+
                 break;
             }
+
             case EnterNotify:
                 XSetInputFocus(display, ev.xcrossing.window, RevertToPointerRoot, CurrentTime);
                 XRaiseWindow(display, ev.xcrossing.window);
@@ -331,17 +546,18 @@ int main() {
                 XConfigureWindow(display, req->window, req->value_mask, &changes);
                 break;
             }
+
             case KeyPress: {
                 XKeyEvent key = ev.xkey;
                 Window focused;
                 int revert;
                 XGetInputFocus(display, &focused, &revert);
+                focused = get_toplevel_window(display, focused);
                 int px = 0, py = 0, pw = 0, ph = 0;
                 get_primary_monitor_geometry(display, &px, &py, &pw, &ph);
 
                 unsigned int mods = key.state & (ShiftMask | ControlMask | Mod4Mask | LockMask);
                 KeySym keysym = XLookupKeysym(&key, 0);
-
 
                 if (resize_mode && (key.state & Mod4Mask) && (key.state & ShiftMask)) {
                     XWindowAttributes attr;
@@ -389,12 +605,18 @@ int main() {
                     } else if (action == "resize_mode") {
                         resize_mode = true;
                         break;
+                    } else if (action == "kill_focused") {
+                        if (focused != None && focused != PointerRoot) {
+                            XKillClient(display, focused);
+                        }
+                        break;
                     } else {
                         launch(action.c_str(), px, py);
                     }
                 }
                 break;
             }
+
             case KeyRelease: {
                 XKeyEvent key = ev.xkey;
                 KeySym keysym = XLookupKeysym(&key, 0);
@@ -403,7 +625,6 @@ int main() {
                 }
                 break;
             }
-
         }
     }
 
