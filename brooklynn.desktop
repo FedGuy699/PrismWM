@@ -1,0 +1,4 @@
+Name=Brooklynn
+Comment=Brooklynn Window Manager
+Exec=/usr/local/bin/brooklynn
+Type=XSession
