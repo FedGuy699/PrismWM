@@ -121,8 +121,8 @@ void ensure_config_exists(const std::string& path) {
     out << "\n# When holding this key resize mode is on when in resize mode you can use arrow keys to size the window\n";
     out << "Mod4+Shift+R=resize_mode\n";
 
-    out << "\n# This can be a bit buggy"
-    out << "tiling=false\n"
+    out << "\n# This can be a bit buggy";
+    out << "tiling=false\n";
 
     out << "\n# xrandr example command to run at startup\n";
     out << "# xrandr=--output HDMI-1 --mode 1920x1080 --rate 60\n";
