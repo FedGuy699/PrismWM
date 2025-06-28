@@ -25,7 +25,7 @@ Brooklynn uses about **200 KB of memory** from my testing, making it good for li
 
 please if you are reading this dont use tiling its broken
 
-yay -S brooklynn
+yay -S brooklynn-git
 
 or for none arch users clone the repo compile the c++ file and move the binary to /usr/local/bin and move the .desktop file to /usr/share/xsessions
 
