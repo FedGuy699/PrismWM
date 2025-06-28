@@ -4,6 +4,10 @@
 
 Brooklynn uses about **200 KB of memory** from my testing, making it good for lightweight setups.
 
+# Feel free to make commits!
+
+**Brooklynn** is not just mine it is for everyone, so if you have a commit you would like to make, feel free.
+
 ---
 
 ## ✨ Features
