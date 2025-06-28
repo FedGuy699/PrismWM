@@ -105,6 +105,9 @@ void ensure_config_exists(const std::string& path) {
     std::ofstream out(path);
     out << "\n# Startup apps here\n";
     out << "\n# feh --bg-scale Pictures/background.png\n";
+    out << "\n# Uncomment this and install a polkit agent if you want to have permissions in certain apps\n";
+    out << "# If you would like to use this example (sudo pacman -S polkit-gnome)\n";
+    out << "# /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1\n";
 
     out << "\n# Example keybindings\n";
     out << "Mod4+B=firefox\n";
@@ -121,7 +124,7 @@ void ensure_config_exists(const std::string& path) {
     out << "\n# When holding this key resize mode is on when in resize mode you can use arrow keys to size the window\n";
     out << "Mod4+Shift+R=resize_mode\n";
 
-    out << "\n# This can be a bit buggy\n";
+    out << "\n# This can be a bit buggy dont use\n";
     out << "tiling=false\n";
 
     out << "\n# xrandr example command to run at startup\n";
