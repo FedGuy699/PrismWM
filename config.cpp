@@ -43,15 +43,6 @@ void ensure_config_exists(const std::string& path) {
     out << "# Uncomment for rofi\n";
     out << "# Mod4+R=rofi -show drun\n";
 
-    out << "Mod4+Shift+Up=move_up\n";
-    out << "Mod4+Shift+Down=move_down\n";
-    out << "Mod4+Shift+Left=move_left\n";
-    out << "Mod4+Shift+Right=move_right\n";
-    out << "Mod4+Shift+F=fullscreen\n";
-    out << "Mod4+Shift+Q=kill_focused\n";
-    out << "\n# When holding this key resize mode is on when in resize mode you can use arrow keys to size the window\n";
-    out << "Mod4+Shift+R=resize_mode\n";
-
     out << "\n# xrandr example command to run at startup\n";
     out << "# xrandr=--output HDMI-1 --mode 1920x1080 --rate 60\n";
     out.close();
