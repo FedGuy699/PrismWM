@@ -35,6 +35,6 @@ or for none arch users clone the repo compile the c++ file and move the binary t
 
 ## Compile 
 
-g++ -o brooklynn brooklynn.cpp config.cpp launch.cpp monitor.cpp window.cpp lock.cpp -lX11 -lXrandr -lXft -I/usr/include/freetype2 -lpam
+g++ -o brooklynn brooklynn.cpp config.cpp launch.cpp monitor.cpp window.cpp lock.cpp paper.cpp -lX11 -lXrandr -lXft -I/usr/include/freetype2 -lpam
 
 
