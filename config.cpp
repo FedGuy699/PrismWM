@@ -10,6 +10,7 @@
 #include <sstream>
 #include <X11/cursorfont.h>
 
+#include "paper.h"
 #include "config.h"
 
 std::string xrandr_command;
@@ -31,8 +32,10 @@ void ensure_config_exists(const std::string& path) {
     if (infile.good()) return;
 
     std::ofstream out(path);
+    out << "# Wallpaper set here\n";
+    out << "wallpaper=~/Pictures/wallpaper.png\n";
+
     out << "\n# Startup apps here\n";
-    out << "\n# feh --bg-scale Pictures/background.png\n";
     out << "\n# Uncomment this and install a polkit agent if you want to have permissions in certain apps\n";
     out << "# If you would like to use this example (sudo pacman -S polkit-gnome)\n";
     out << "# /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1\n";
@@ -69,6 +72,20 @@ void load_config(Display* dpy, Window root) {
         if (eq != std::string::npos) {
             std::string combo = line.substr(0, eq);
             std::string command = line.substr(eq + 1);
+
+            if (combo == "wallpaper") {
+                std::string full_path = command;
+
+                if (!full_path.empty() && full_path[0] == '~') {
+                    const char* home = getenv("HOME");
+                    if (!home) home = getpwuid(getuid())->pw_dir;
+                    full_path = std::string(home) + full_path.substr(1);
+                }
+
+                setpaper(full_path);
+                continue;
+            }
+
             unsigned int mods = 0;
             std::string keyname;
             std::istringstream ss(combo);
