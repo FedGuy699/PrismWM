@@ -13,7 +13,7 @@ Brooklynn uses about **200 KB of memory** from my testing, making it good for li
 ## ✨ Features
 
 - 🧠 Simple and easy to use
-- 🪟 Optional tiling or floating window layouts
+- 🪟 Floating window layouts
 - ⚡ Fast startup and low memory usage (~200 KB)
 - 🛠️ Custom keybindings via `~/.config/brooklynn/config`
 
