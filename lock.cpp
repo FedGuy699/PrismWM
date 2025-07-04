@@ -3,6 +3,7 @@
 #include <X11/Xft/Xft.h>
 #include <X11/keysym.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/extensions/Xrender.h> 
 
 #include <security/pam_appl.h> 
 

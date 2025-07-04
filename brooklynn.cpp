@@ -1,6 +1,8 @@
 #include <X11/Xlib.h>
 #include <X11/cursorfont.h>
 #include <X11/Xatom.h>
+#include <X11/XKBlib.h>
+
 
 #include <iostream>
 #include <vector>
@@ -24,6 +26,7 @@ bool running = true;
 bool resize_mode = false;
 
 std::vector<Window> managed_windows;
+
 
 int parse_modifier(const std::string& mod) {
     if (mod == "Mod4") return Mod4Mask;
@@ -74,7 +77,7 @@ void handle_key_press(XKeyEvent* ev) {
     KeyCode keycode = ev->keycode;
     unsigned int state = ev->state & (ShiftMask | ControlMask | Mod1Mask | Mod4Mask);
 
-    KeySym keysym = XKeycodeToKeysym(display, keycode, 0);
+    KeySym keysym = XkbKeycodeToKeysym(display, keycode, 0, 0);
     if (keysym == XK_l && state == Mod4Mask) {
         lock();
         return;
@@ -86,7 +89,6 @@ void handle_key_press(XKeyEvent* ev) {
         launch(cmd.c_str(), 0, 0, display_name);
     }
 }
-
 
 int main() {
     display_name = getenv("DISPLAY");
@@ -109,6 +111,7 @@ int main() {
         }
         return 0;
     });
+
 
     XSelectInput(display, root, 
         SubstructureRedirectMask | SubstructureNotifyMask | 

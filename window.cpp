@@ -9,9 +9,12 @@
 #include <vector>
 #include <algorithm>
 #include <cstring>
+#include <unordered_map>
 
 extern Display* display;
 extern std::vector<Window> managed_windows;
+extern Window root;
+
 
 const int TITLE_BAR_HEIGHT = 24;
 const int BORDER_WIDTH = 1;
@@ -27,6 +30,7 @@ Atom net_wm_state;
 Atom net_wm_state_fullscreen;
 Atom net_wm_state_maximized_vert;
 Atom net_wm_state_maximized_horz;
+Atom net_client_list;
 
 struct WindowPair {
     Window frame;
@@ -85,11 +89,57 @@ void init_atoms() {
     net_wm_state_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
     net_wm_state_maximized_vert = XInternAtom(display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
     net_wm_state_maximized_horz = XInternAtom(display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+    net_client_list = XInternAtom(display, "_NET_CLIENT_LIST", False);
 }
 
 void start_window_drag(Window win, int x_root, int y_root) {
     drag_in_progress = true;
     drag_window = win;
+
+    Atom actual_type;
+    int actual_format;
+    unsigned long nitems, bytes_after;
+    unsigned char* prop = nullptr;
+
+    if (XGetWindowProperty(display, win, net_wm_state, 0, (~0L), False, XA_ATOM,
+                           &actual_type, &actual_format, &nitems, &bytes_after, &prop) == Success && prop) {
+        bool is_max_vert = false;
+        bool is_max_horz = false;
+
+        Atom* atoms = (Atom*)prop;
+        for (unsigned long i = 0; i < nitems; ++i) {
+            if (atoms[i] == net_wm_state_maximized_vert) is_max_vert = true;
+            if (atoms[i] == net_wm_state_maximized_horz) is_max_horz = true;
+        }
+
+        XFree(prop);
+
+        if (is_max_vert || is_max_horz) {
+            Window client = win;
+            for (const auto& wp : framed_windows) {
+                if (wp.frame == win) {
+                    client = wp.client;
+                    break;
+                }
+            }
+
+            Atom wm_state = XInternAtom(display, "_NET_WM_STATE", False);
+
+            XEvent e = {};
+            e.xclient.type = ClientMessage;
+            e.xclient.window = client;
+            e.xclient.message_type = wm_state;
+            e.xclient.format = 32;
+            e.xclient.data.l[0] = 0;
+            e.xclient.data.l[1] = net_wm_state_maximized_vert;
+            e.xclient.data.l[2] = net_wm_state_maximized_horz;
+            e.xclient.data.l[3] = 1;
+            e.xclient.data.l[4] = 0;
+
+            XSendEvent(display, root, False,
+                       SubstructureRedirectMask | SubstructureNotifyMask, &e);
+        }
+    }
 
     XWindowAttributes attr;
     XGetWindowAttributes(display, win, &attr);
@@ -101,7 +151,6 @@ void start_window_drag(Window win, int x_root, int y_root) {
                  GrabModeAsync, GrabModeAsync,
                  None, None, CurrentTime);
 }
-
 
 void end_window_drag() {
     drag_in_progress = false;
@@ -280,6 +329,18 @@ void end_window_resize() {
     resize_dir = RESIZE_NONE;
 }
 
+void update_net_client_list() {
+    if (managed_windows.empty()) {
+        XDeleteProperty(display, root, net_client_list);
+        return;
+    }
+
+    XChangeProperty(display, root, net_client_list, XA_WINDOW, 32,
+                    PropModeReplace,
+                    (unsigned char*)managed_windows.data(),
+                    managed_windows.size());
+}
+
 void handle_map_request(XMapRequestEvent* ev) {
     Window w = ev->window;
 
@@ -366,9 +427,11 @@ void handle_map_request(XMapRequestEvent* ev) {
         XMapWindow(display, w);
         XSelectInput(display, w, StructureNotifyMask);
         managed_windows.push_back(w);
+        update_net_client_list();
     } else {
         Window frame = create_frame_window(w, win_x, win_y, width, height);
         managed_windows.push_back(frame);
+        update_net_client_list();
     }
 }
 
@@ -386,6 +449,7 @@ void handle_destroy_notify(XDestroyWindowEvent* ev) {
 
         XFreeGC(display, it->gc);
         framed_windows.erase(it);
+        update_net_client_list();
     }
 
     managed_windows.erase(
@@ -558,6 +622,45 @@ void handle_button_release(XButtonEvent* ev) {
     if (ev->button == Button1) {
         if (resize_in_progress) {
             end_window_resize();
+        }
+        if (drag_window != None) {
+            XWindowAttributes attr;
+            XGetWindowAttributes(display, drag_window, &attr);
+
+            int mon_x, mon_y, mon_w, mon_h;
+            if (!get_monitor_geometry_for_window(display, drag_window, &mon_x, &mon_y, &mon_w, &mon_h)) {
+                mon_x = 0;
+                mon_y = 0;
+                mon_w = DisplayWidth(display, DefaultScreen(display));
+                mon_h = DisplayHeight(display, DefaultScreen(display));
+            }
+
+            if (attr.y <= mon_y + 5) {
+                Window client = drag_window;
+
+                for (const auto& wp : framed_windows) {
+                    if (wp.frame == drag_window) {
+                        client = wp.client;
+                        break;
+                    }
+                }
+
+                Atom wm_state = XInternAtom(display, "_NET_WM_STATE", False);
+
+                XEvent e = {};
+                e.xclient.type = ClientMessage;
+                e.xclient.window = client;
+                e.xclient.message_type = wm_state;
+                e.xclient.format = 32;
+                e.xclient.data.l[0] = 1;
+                e.xclient.data.l[1] = net_wm_state_maximized_vert;
+                e.xclient.data.l[2] = net_wm_state_maximized_horz;
+                e.xclient.data.l[3] = 1;
+                e.xclient.data.l[4] = 0;
+
+                XSendEvent(display, root, False,
+                        SubstructureRedirectMask | SubstructureNotifyMask, &e);
+            }
         }
         if (drag_in_progress) {
             end_window_drag();
@@ -732,6 +835,8 @@ void handle_client_message(XClientMessageEvent* ev) {
 
                 XDeleteProperty(display, win, net_wm_state);
             }
+
+
         } else if (property == net_wm_state_fullscreen) {
             bool already_fullscreen = (attr.x == mon_x && attr.y == mon_y &&
                                        attr.width == mon_w && attr.height == mon_h);
