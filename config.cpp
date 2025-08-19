@@ -50,7 +50,7 @@ void ensure_config_exists(const std::string& path) {
     out << "# xrandr=--output HDMI-1 --mode 1920x1080 --rate 60\n";
     out.close();
 
-    std::string msg = "Brooklynn config created at " + path;
+    std::string msg = "prism config created at " + path;
     show_config_created_bar(msg);
 }
 
@@ -112,7 +112,7 @@ void load_config(Display* dpy, Window root) {
 std::string get_config_path() {
     const char* home = getenv("HOME");
     if (!home) home = getpwuid(getuid())->pw_dir;
-    return std::string(home) + "/.config/brooklynn/config";
+    return std::string(home) + "/.config/prism/config";
 }
 
 void show_config_created_bar(const std::string& message) {

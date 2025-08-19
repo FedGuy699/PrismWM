@@ -13,9 +13,9 @@ void launch(const char* cmd, int px, int py, const char* display_name) {
         char bufx[32], bufy[32];
         snprintf(bufx, sizeof(bufx), "%d", px);
         snprintf(bufy, sizeof(bufy), "%d", py);
-        setenv("BROOKLYNN_LAUNCH_X", bufx, 1);
-        setenv("BROOKLYNN_LAUNCH_Y", bufy, 1);
-        int fd = open("/tmp/brooklynn.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
+        setenv("PRISM_LAUNCH_X", bufx, 1);
+        setenv("PRISM_LAUNCH_Y", bufy, 1);
+        int fd = open("/tmp/prism.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
         if (fd == -1) fd = open("/dev/null", O_WRONLY);
         if (fd != -1) {
             dup2(fd, STDOUT_FILENO);
